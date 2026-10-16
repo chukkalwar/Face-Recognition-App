@@ -1,0 +1,11 @@
+# Registered faces and attendance photos are biometric data. Never commit.
+data/*
+!data/.gitkeep
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.idea/
+.vscode/
+.claude/

@@ -1,0 +1,118 @@
+# =============================================================================
+# Face recognition attendance API - all settings.
+#
+# Every key shows its default, so deleting a line changes nothing.
+# Environment variables override this file:
+#   USE_GPU  ORT_THREADS  SPOOF_THRESH  SPOOF_MODEL_DIR  DB_PATH
+# API_KEY (environment only) turns on the X-API-Key header check.
+# Point at another file with FR_CONFIG=/path/to/other.toml
+# =============================================================================
+
+[runtime]
+gpu = false          # needs onnxruntime-gpu instead of onnxruntime
+threads = 0          # threads per model; 0 = physical cores
+spin_wait = false    # leave false: requests are bursty
+
+
+[paths]
+database = "data/faces.db"
+spoof_models = "models"
+
+
+[detection]
+# Gates every frame goes through, in this order. See app/services/analysis.py.
+det_size = 480              # detector input size; lower is faster, misses far faces
+rec_thresh = 0.45          # cosine similarity below which a face is unknown
+
+# Distance: face width as a share of the image's SHORTER side (the width on a
+# portrait phone, the height on a landscape webcam). 0.30 is about arm's
+# length (45-50 cm) on a typical phone front camera, 0.35 about 40 cm. Above
+# max_face_ratio the user is told "Please keep distance from the camera" and
+# no scores are reported, because the liveness model needs to see around the
+# face to catch a screen or paper edge. Lower it to force a longer distance.
+min_face_ratio = 0.12
+max_face_ratio = 0.35
+# Share of the 2.7x liveness crop that must be inside the image. 0.80 lets a
+# face at max_face_ratio pass on a landscape webcam; raise it together with
+# lowering max_face_ratio for stricter context.
+min_context = 0.80
+min_det_score = 0.60        # detector confidence for detection and attendance
+min_frame_px = 480          # images with a shorter side are rejected
+min_blur_var = 10.0         # sharpness of the face crop
+min_brightness = 50         # mean grey level 0-225; below this = "too_dark"
+
+[antispoof]
+# Below `threshold` a frame is reported as spoof ("Spoofing detected").
+# Between threshold and min_liveness it is "Liveness not confirmed".
+# The model was calibrated at 0.48 on a webcam; re-check both on your phones
+# using the liveness_score each response returns.
+threshold = 0.48
+min_liveness = 0.80
+
+
+[enrollment]
+samples_per_pose = 3        # samples per pose (center / left / right) # changed in this line parameter 5 to 3
+max_seconds = 90
+min_det_score = 0.6         # lower than detection: turned heads score lower
+min_liveness = 0.48         # registration only rejects clear spoofs
+
+# Registration distance. Closer than attendance on purpose: a big, sharp face
+# gives better samples, and an admin is present. Same measure as [detection]:
+# face width / shorter image side. min_context = 0 turns the centring check
+# off, because a close face cannot fit the liveness model's 2.7x crop.
+min_face_ratio = 0.15
+max_face_ratio = 0.60
+min_context = 0.0
+# Already-registered check. After `duplicate_check_samples` frontal samples
+# the face is compared with everyone registered. At or above `duplicate_sim`
+# the registration stops with state "already_registered", nothing is saved,
+# and the existing person's details are returned. Keep duplicate_sim at or
+# above [detection] rec_thresh. With block_duplicates = false it only warns.
+# To re-register someone on purpose, delete them first.
+block_duplicates = true
+duplicate_sim = 0.50
+duplicate_check_samples = 3
+dedup_sim = 0.99            # skip near-identical samples
+sample_cooldown_s = 0.25
+image_max_side = 160        # stored reference face image size
+image_jpeg_quality = 80
+
+
+[attendance]
+min_similarity = 0.45       # match strength needed on every counted frame
+frames_required = 1         # passing frontal frames needed...
+min_span_s = 0.0            # ...spread over at least this long
+challenge = true            # then a slight head turn...
+challenge_sides_required = 1  # ...1 = either side is enough, 2 = both sides (either order)
+challenge_min_yaw = 0.20
+turn_max_face_ratio = 0.45  # "too close" bar on turned frames (frontal frames use [detection])
+max_spoof_frames = 3       # spoof frames before rejection (~2.5 s at one frame / 250 ms)
+max_seconds = 45
+cooldown_s = 300            # a second mark inside this window returns the first
+# added below lines
+skip_challenge_liveness = 0.80
+skip_challenge_similarity = 0.60
+
+[group_attendance]
+# Several people in one frame, e.g. a phone or tablet held up to a group.
+# Every face is checked on its own at the strict [detection] / [antispoof] /
+# [attendance] bars, and each person is marked once THEIR face has passed on
+# `frames_required` frames over `min_span_s`. There is no head-turn challenge:
+# it cannot be directed at one person in a group, so group marks are weaker
+# evidence and are stored with mode = "group".
+min_face_ratio = 0.08       # people stand further back in a group
+max_face_ratio = 0.50
+min_context = 0.75          # people near the edge still get checked
+min_face_px = 80            # below this a face is too small to judge
+max_faces = 7              # largest faces first #added this line
+frames_required = 2         # changed value 5 to 2
+min_span_s = 0.3            
+max_seconds = 60
+min_similarity = 0.50 #added this line for 
+min_margin = 0.08  #added this line for 
+
+
+[api]
+max_sessions = 100          # open registration / attendance sessions, each
+max_image_mb = 5
+session_ttl_s = 300         # finished sessions stay readable this long
