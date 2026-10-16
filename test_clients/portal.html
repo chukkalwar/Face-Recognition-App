@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attendance Test Portal</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --muted:#5d6670; --line:#dde1e6;
+          --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; --accent:#0969da; --accent-ink:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1216; --card:#171b21; --ink:#e6e9ed; --muted:#9aa4af; --line:#2a3038;
+            --ok:#3fb950; --bad:#f85149; --warn:#d29922; --accent:#4493f8; --accent-ink:#0f1216; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:12px; padding:12px 16px;
+           border-bottom:1px solid var(--line); background:var(--card); flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; flex:1; }
+  .wrap { max-width:1180px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  .grid { display:grid; gap:16px; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); }
+  @media (max-width:860px) { .grid { grid-template-columns:1fr; } }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
+  .tabs button.active { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  label { font-size:13px; color:var(--muted); display:flex; flex-direction:column; gap:3px; }
+  input, select { font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:6px;
+                  background:var(--bg); color:var(--ink); min-width:0; width:100%; }
+  button { font:inherit; padding:7px 12px; border-radius:6px; border:1px solid var(--line);
+           background:var(--bg); color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  button.danger { color:var(--bad); border-color:var(--bad); background:transparent; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin:10px 0; }
+  .row > label { flex:1; min-width:140px; }
+  .stage { position:relative; width:100%; background:#000; border-radius:8px; overflow:hidden;
+           aspect-ratio:16/9; }
+  .stage video, .stage canvas { position:absolute; inset:0; width:100%; height:100%;
+                                object-fit:contain; transform:scaleX(-1); }
+  .msg { font-size:20px; font-weight:600; margin:6px 0 2px; }
+  .sub { color:var(--muted); font-size:14px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px;
+           font-weight:600; border:1px solid currentColor; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; font-weight:600; color:var(--muted); font-size:13px; }
+  th, td { padding:6px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  .kv td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .scroll { overflow-x:auto; }
+  .thumb { width:44px; height:44px; border-radius:6px; object-fit:cover; background:var(--line);
+           display:block; }
+  .bar { height:8px; background:var(--line); border-radius:99px; overflow:hidden; margin:10px 0; }
+  .bar > div { height:100%; width:0; background:var(--accent); transition:width .2s; }
+  pre { margin:0; max-height:220px; overflow:auto; font-size:12px; background:var(--bg);
+        padding:8px; border-radius:6px; white-space:pre-wrap; word-break:break-word; }
+  details summary { cursor:pointer; color:var(--muted); font-size:13px; margin-top:12px; }
+  .login { max-width:420px; margin:48px auto; }
+  .note { font-size:13px; color:var(--muted); margin-top:10px; }
+  .person-card { display:flex; gap:12px; align-items:center; margin-top:10px; padding:10px;
+                 border:1px solid var(--bad); border-radius:8px; }
+  .person-card img { width:64px; height:64px; border-radius:6px; object-fit:cover; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+
+<!-- ============================ LOGIN ============================ -->
+<div id="loginView" class="wrap">
+  <div class="card login">
+    <h2>Sign in</h2>
+    <div class="row"><label>API address<input id="api" value="http://localhost:8000"></label></div>
+    <div class="row"><label>API key, if the server sets one<input id="key" placeholder="X-API-Key"></label></div>
+    <div class="row">
+      <label>Role
+        <select id="role">
+          <option value="admin">Admin</option>
+          <option value="employee">Employee</option>
+        </select>
+      </label>
+    </div>
+    <div class="row" id="employeePick" hidden>
+      <label>Employee<select id="employeeSelect"></select></label>
+    </div>
+    <div class="row"><button class="primary" id="loginBtn" style="width:100%">Sign in</button></div>
+    <div class="sub" id="loginMsg"></div>
+    <p class="note">Test page only. Roles are enforced in this page, not by the API.</p>
+  </div>
+</div>
+
+<!-- ============================ APP ============================ -->
+<div id="appView" hidden>
+  <header>
+    <h1>Attendance test portal</h1>
+    <span class="badge" id="whoBadge"></span>
+    <button id="logoutBtn">Sign out</button>
+  </header>
+  <div class="wrap">
+    <nav class="tabs" id="tabs"></nav>
+
+    <!-- camera tabs share one layout -->
+    <div class="grid" id="cameraPane" hidden>
+      <section class="card">
+        <div class="stage"><video id="video" autoplay playsinline muted></video><canvas id="overlay"></canvas></div>
+
+        <div id="panel-register" hidden>
+          <div class="row">
+            <label>Name<input id="regName"></label>
+            <label>Employee ID<input id="regEid"></label>
+            <label>Employee number<input id="regEnum"></label>
+          </div>
+        </div>
+        <div id="panel-detect" hidden>
+          <div class="row">
+            <label>Check
+              <select id="detectMode">
+                <option value="/api/detect/face">Face and distance</option>
+                <option value="/api/detect/liveness">Liveness</option>
+                <option value="/api/verify" selected>Verify: liveness and recognition</option>
+                <option value="/api/verify/group">Group verify: every face in view</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div id="panel-attendance" hidden>
+          <div class="row" id="attAdminPick">
+            <label>Employee, optional 1:1 check<select id="attEmployee"></select></label>
+          </div>
+        </div>
+
+        <div id="panel-group" hidden>
+          <p class="sub">Everyone in view is checked on their own. Each person is marked once
+            their face passes on 5 frames. Press Stop to finish the session.</p>
+        </div>
+
+        <div class="row">
+          <button class="primary" id="startBtn">Start</button>
+          <button id="stopBtn" disabled>Stop</button>
+          <span class="sub" id="timing"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 id="resultTitle">Result</h2>
+        <span class="badge" id="badge">idle</span>
+        <div class="msg" id="message">Press Start</div>
+        <div class="sub" id="instruction"></div>
+        <div class="bar"><div id="progress"></div></div>
+        <div id="personCard"></div>
+        <table class="kv" id="scores"></table>
+        <div class="scroll"><table id="groupTable"></table></div>
+        <details><summary>Raw response</summary><pre id="raw">-</pre></details>
+      </section>
+    </div>
+
+    <!-- people -->
+    <section class="card" id="peoplePane" hidden>
+      <div class="row" style="justify-content:space-between;align-items:center;margin-top:0">
+        <h2 style="margin:0">Registered people</h2>
+        <button id="peopleRefresh">Refresh</button>
+      </div>
+      <div class="scroll"><table id="peopleTable"></table></div>
+      <div class="sub" id="peopleMsg"></div>
+    </section>
+
+    <!-- records -->
+    <section class="card" id="recordsPane" hidden>
+      <h2>Attendance records</h2>
+      <div class="row">
+        <label>Day<input type="date" id="recDay"></label>
+        <label>Employee<select id="recEmployee"></select></label>
+        <button class="primary" id="recLoad">Load</button>
+      </div>
+      <div class="scroll"><table id="recTable"></table></div>
+      <div class="sub" id="recMsg"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ---------------------------------------------------------------- storage
+const store = {
+  get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} },
+  del(k) { try { sessionStorage.removeItem(k); } catch (e) {} },
+};
+try {
+  $("api").value = localStorage.getItem("portal.api") || $("api").value;
+  $("key").value = localStorage.getItem("portal.key") || "";
+} catch (e) {}
+
+// ---------------------------------------------------------------- API
+let user = null;   // { role, employee: {name, employee_id} | null }
+const base = () => $("api").value.replace(/\/$/, "");
+function headers(json) {
+  const h = {};
+  if ($("key").value) h["X-API-Key"] = $("key").value;
+  if (json) h["Content-Type"] = "application/json";
+  return h;
+}
+async function api(method, path, body) {
+  const r = await fetch(base() + path, { method, headers: headers(body !== undefined),
+                                         body: body === undefined ? undefined : JSON.stringify(body) });
+  let data = null;
+  try { data = await r.json(); } catch (e) {}
+  return { http: r.status, data };
+}
+async function imageURL(path) {      // images need the API key header, so fetch as blob
+  const r = await fetch(base() + path, { headers: headers(false) });
+  return r.ok ? URL.createObjectURL(await r.blob()) : null;
+}
+async function loadPeople() {
+  const r = await api("GET", "/api/people");
+  if (r.http !== 200) throw new Error(errorText(r));
+  return r.data;
+}
+function errorText(r) {
+  const d = r.data && r.data.detail;
+  if (!d) return `HTTP ${r.http}`;
+  return typeof d === "string" ? d : (d.message || JSON.stringify(d));
+}
+
+// ---------------------------------------------------------------- login
+$("role").onchange = async () => {
+  const employee = $("role").value === "employee";
+  $("employeePick").hidden = !employee;
+  if (employee) await fillEmployeeSelect($("employeeSelect"), false, $("loginMsg"));
+};
+async function fillEmployeeSelect(select, withAny, msgEl) {
+  select.innerHTML = '<option value="">Loading...</option>';
+  try {
+    const people = await loadPeople();
+    select.innerHTML = (withAny ? '<option value="">Any employee</option>' : "") +
+      people.map(p => `<option value="${esc(p.employee_id)}" data-name="${esc(p.name)}">` +
+                      `${esc(p.name)} (${esc(p.employee_id)})</option>`).join("");
+    if (!people.length && !withAny) {
+      select.innerHTML = '<option value="">No one registered yet</option>';
+    }
+    if (msgEl) msgEl.textContent = "";
+  } catch (e) {
+    select.innerHTML = '<option value="">Could not load</option>';
+    if (msgEl) msgEl.textContent = "Cannot reach the API: " + e.message;
+  }
+}
+$("loginBtn").onclick = async () => {
+  try { localStorage.setItem("portal.api", $("api").value);
+        localStorage.setItem("portal.key", $("key").value); } catch (e) {}
+  try {
+    const r = await fetch(base() + "/");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  } catch (e) { $("loginMsg").textContent = "Cannot reach the API: " + e.message; return; }
+  const check = await api("GET", "/api/people");
+  if (check.http === 401) { $("loginMsg").textContent = "Wrong or missing API key"; return; }
+  const role = $("role").value;
+  let employee = null;
+  if (role === "employee") {
+    const opt = $("employeeSelect").selectedOptions[0];
+    if (!opt || !opt.value) { $("loginMsg").textContent = "Pick a registered employee"; return; }
+    employee = { employee_id: opt.value, name: opt.dataset.name };
+  }
+  user = { role, employee };
+  store.set("portal.user", JSON.stringify(user));
+  enterApp();
+};
+$("logoutBtn").onclick = () => {
+  stopRun(); stopCamera(); user = null; store.del("portal.user");
+  $("appView").hidden = true; $("loginView").hidden = false;
+};
+
+// ---------------------------------------------------------------- tabs
+const TABS = {
+  admin: [["register", "Register"], ["check", "Check registered"], ["detect", "Detection test"],
+          ["attendance", "Attendance"], ["group", "Group attendance"],
+          ["people", "People"], ["records", "Records"]],
+  employee: [["attendance", "Mark attendance"]],
+};
+const CAMERA_TABS = ["register", "check", "detect", "attendance", "group"];
+let tab = null;
+
+function enterApp() {
+  $("loginView").hidden = true; $("appView").hidden = false;
+  $("whoBadge").textContent = user.role === "admin" ? "Admin"
+    : `Employee: ${user.employee.name} (${user.employee.employee_id})`;
+  $("tabs").innerHTML = TABS[user.role].map(([id, label]) =>
+    `<button data-tab="${id}">${esc(label)}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => openTab(b.dataset.tab));
+  $("attAdminPick").hidden = user.role !== "admin";
+  openTab(TABS[user.role][0][0]);
+}
+
+async function openTab(id) {
+  if (!TABS[user.role].some(([t]) => t === id)) return;     // role gate
+  stopRun();
+  tab = id;
+  $("tabs").querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.tab === id));
+  const camera = CAMERA_TABS.includes(id);
+  $("cameraPane").hidden = !camera;
+  $("peoplePane").hidden = id !== "people";
+  $("recordsPane").hidden = id !== "records";
+  for (const p of ["register", "detect", "attendance", "group"]) $("panel-" + p).hidden = p !== id;
+  resetResult();
+  if (camera) {
+    startCamera();
+    $("resultTitle").textContent = { register: "Registration", check: "Already registered?",
+      detect: "Detection", attendance: "Attendance", group: "Group attendance" }[id];
+    if (id === "attendance" && user.role === "admin") fillEmployeeSelect($("attEmployee"), true);
+  } else {
+    stopCamera();
+  }
+  if (id === "people") renderPeople();
+  if (id === "records") {
+    $("recDay").value = new Date().toLocaleDateString("en-CA");      // YYYY-MM-DD, local
+    await fillEmployeeSelect($("recEmployee"), true);
+    renderRecords();
+  }
+}
+
+// ---------------------------------------------------------------- camera
+const video = $("video"), overlay = $("overlay"), grab = document.createElement("canvas");
+let stream = null;
+async function startCamera() {
+  if (stream) return;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720, facingMode: "user" }, audio: false });
+    video.srcObject = stream;
+  } catch (e) {
+    setResult({ status: "camera_error", message: "Camera blocked or missing: " + e.message });
+  }
+}
+function stopCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; video.srcObject = null;
+}
+// async function frameBlob() {
+//   grab.width = video.videoWidth; grab.height = video.videoHeight;
+//   grab.getContext("2d").drawImage(video, 0, 0);          // unmirrored full frame
+//   return new Promise(res => grab.toBlob(res, "image/jpeg", 0.9));
+// }
+
+const SEND_SHORT_SIDE = 540;
+async function frameBlob() {
+  const vm = video.videoWidth, vh = video.videoHeight;
+  const k = math.min(1, SEND_SHORT_SIDE / Math.mon(vm, vh));
+  grab.width = Math.round(vm * k); grab.height = Math.round(vh * k);
+  grab.getContext("2d").drawImage(video, 0, 0, grab.width, grab.height);
+  return new Primise(res => grab.toBlob(res, "images/jpeg",0.8));
+}
+async function postFrame(path, fields) {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields || {})) form.append(k, v);
+  form.append("image", await frameBlob(), "frame.jpg");
+  const r = await fetch(base() + path, { method: "POST", headers: headers(false), body: form });
+  let data = null;
+  try { data = await r.json(); } catch (e) {}
+  return { http: r.status, data };
+}
+
+// ---------------------------------------------------------------- result panel
+const tone = s => ["ok", "complete", "attendance_marked"].includes(s) ? "ok"
+  : ["spoof", "rejected", "already_registered", "mismatch", "failed", "network_error",
+     "camera_error", "error"].includes(s) ? "bad" : "warn";
+const fmt = v => v === null || v === undefined ? "-" : (typeof v === "number" ? v.toFixed(3) : esc(v));
+
+function resetResult() {
+  $("badge").textContent = "idle"; $("badge").className = "badge";
+  $("message").textContent = "Press Start"; $("instruction").textContent = "";
+  $("progress").style.width = "0"; $("scores").innerHTML = ""; $("raw").textContent = "-";
+  $("personCard").innerHTML = ""; $("groupTable").innerHTML = ""; drawBox(null);
+}
+
+function drawBox(bbox, status) {
+  drawBoxes(bbox ? [{ bbox, status }] : []);
+}
+// boxes = [{bbox, status, label?}]. The canvas is mirrored by CSS like the
+// video, so boxes line up; labels are drawn un-mirrored so they stay readable.
+function drawBoxes(boxes) {
+  // const W = overlay.width = video.videoWidth || 1280;
+  // overlay.height = video.videoHeight || 720;
+  const W = overlay.width = grab.width || video.videoWidth ||1280;
+  overlay.height  = grab.height || video.videoheight || 720;
+  const ctx = overlay.getContext("2d");
+  ctx.clearRect(0, 0, W, overlay.height);
+  const css = getComputedStyle(document.documentElement);
+  for (const b of boxes) {
+    if (!b.bbox) continue;
+    const [x1, y1, x2, y2] = b.bbox;
+    const color = css.getPropertyValue("--" + tone(b.status)).trim();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.strokeStyle = color; ctx.lineWidth = 4;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    if (b.label) {
+      ctx.setTransform(-1, 0, 0, 1, W, 0);
+      ctx.font = "bold 20px system-ui, sans-serif";
+      const tw = ctx.measureText(b.label).width;
+      ctx.fillStyle = color; ctx.fillRect(W - x2, Math.max(0, y1 - 28), tw + 12, 26);
+      ctx.fillStyle = "#fff"; ctx.fillText(b.label, W - x2 + 6, Math.max(20, y1 - 8));
+    }
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// Group responses: /api/verify/group returns {faces}, a group session {frame: {faces}}.
+function setGroupResult(d, http) {
+  const faces = (d.frame ? d.frame.faces : d.faces) || [];
+  const final = d.state && d.state !== "running";
+  const status = final ? d.state : (d.frame ? d.frame.status : d.status) || "error";
+  $("badge").textContent = status;
+  $("badge").className = "badge " + (final ? "ok" : tone(status === "ok" ? "warn" : status));
+  const marked = d.marked || [];
+  $("message").textContent = final
+    ? `Session ${d.state}: ${marked.length} person(s) marked`
+    : ((d.frame ? d.frame.message : d.message) || "");
+  $("instruction").textContent = d.seconds_left !== undefined && !final
+    ? `${d.seconds_left}s left · ${d.spoof_faces} spoof face(s) seen` : "";
+  $("progress").style.width = "0";
+  $("scores").innerHTML = (marked.length ? `<tr><td>Marked</td><td>${marked.map(m =>
+    `${esc(m.name)}${m.already_marked ? " (earlier)" : ""}`).join(", ")}</td></tr>` : "") +
+    (http ? `<tr><td>HTTP</td><td>${http}</td></tr>` : "");
+  $("groupTable").innerHTML = faces.length ? `<tr><th>Face</th><th>Status</th>
+      <th class="num">Liveness</th><th class="num">Detection</th><th class="num">Ratio</th>
+      ${d.frame ? '<th class="num">Frames</th>' : ""}</tr>` + faces.map((f, i) =>
+      `<tr><td>${i + 1}. ${esc(f.name || "-")}</td>
+       <td class="${tone(f.marked ? "ok" : f.status)}">${esc(f.marked ? "attendance marked" : f.status)}</td>
+       <td class="num">${fmt(f.liveness_score)}</td><td class="num">${fmt(f.detection_score)}</td>
+       <td class="num">${fmt(f.face_ratio)}</td>
+       ${d.frame ? `<td class="num">${f.frames_counted}/${f.frames_required}</td>` : ""}</tr>`).join("")
+    : "";
+  $("raw").textContent = JSON.stringify(d, null, 2);
+  drawBoxes(faces.map((f, i) => ({ bbox: f.bbox, status: f.marked ? "ok" : f.status,
+    label: `${i + 1}. ${f.marked ? "✓ " : ""}${f.name || (f.spoof ? "SPOOF" : f.status)}` })));
+}
+
+async function showPersonCard(person, title) {
+  if (!person) { $("personCard").innerHTML = ""; return; }
+  $("personCard").innerHTML = `<div class="person-card"><img id="pcImg" alt="">
+    <div><strong>${esc(title)}</strong><br>${esc(person.name)}<br>
+    <span class="sub">ID ${esc(person.employee_id)} · No. ${esc(person.employee_number)}
+    ${person.created_at ? "<br>Registered " + esc(localTime(person.created_at)) : ""}
+    ${person.similarity !== undefined ? "<br>Match " + fmt(person.similarity) : ""}</span></div></div>`;
+  if (person.has_image !== false) {
+    const url = await imageURL(`/api/people/${encodeURIComponent(person.employee_id)}/image`);
+    if (url && $("pcImg")) $("pcImg").src = url;
+  }
+}
+
+function setResult(d, http) {
+  d = d || {};
+  if (Array.isArray(d.faces) || (d.frame && Array.isArray(d.frame.faces)) ||
+      (tab === "group" && d.session_id)) { setGroupResult(d, http); return; }
+  const frame = d.frame || d;
+  let status = d.state && d.state !== "running" ? d.state : (frame.status || d.status || "error");
+  let message = frame.message || d.message || "";
+  if (d.state && d.state !== "running") message = d.message || d.reason || message;
+  if (d.detail) {
+    message = typeof d.detail === "string" ? d.detail : (d.detail.message || JSON.stringify(d.detail));
+    status = d.detail.status || "error";
+  }
+  if (tab === "check" && d.message) message = d.message;
+  if (tab === "check" && d.already_registered === false) status = "ok";
+  if (tab === "check" && d.already_registered === true) status = "already_registered";
+  if (tab === "attendance" && d.state === "complete") {
+    message = frame.message || (d.already_marked ? "Attendance was already marked recently"
+                                                 : "Attendance marked");
+  }
+  $("badge").textContent = status; $("badge").className = "badge " + tone(status);
+  $("message").textContent = message;
+  $("instruction").textContent = d.instruction && d.state === "running" ? d.instruction : "";
+
+  let progress = d.progress;
+  if (d.counts) progress = Object.values(d.counts).reduce((a, b) => a + b, 0) /
+                           (d.samples_per_pose * d.poses.length);
+  $("progress").style.width = ((progress || 0) * 100) + "%";
+
+  const rows = [
+    ["Spoof", frame.spoof ? '<span class="bad">YES</span>' : "no"],
+    ["Liveness score", fmt(frame.liveness_score)],
+    ["Detection score", fmt(frame.detection_score)],
+    ["Face ratio, distance", fmt(frame.face_ratio)],
+    ["Similarity", fmt(frame.similarity)],
+    ["Name", fmt(frame.name)],
+    ["Employee ID", fmt(frame.employee_id)],
+  ];
+  if (d.counts) rows.push(["Samples", Object.entries(d.counts)
+    .map(([k, v]) => `${esc(k)} ${v}/${d.samples_per_pose}`).join(", ")]);
+  if (d.phase) rows.push(["Phase", esc(d.phase)]);
+  if (d.attendance) rows.push(["Record", `#${d.attendance.id} at ${esc(localTime(d.attendance.created_at))}`]);
+  if (http) rows.push(["HTTP", http]);
+  $("scores").innerHTML = rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("");
+  $("raw").textContent = JSON.stringify(d, null, 2);
+  if (frame.status === "attendance_marked") {
+    drawBoxes([{ bbox: frame.bbox, status: "attendance_marked",
+                 label: `✓ ${frame.name || ""} - Attendance marked` }]);
+  } else {
+    drawBox(frame.bbox, frame.status);
+  }
+
+  const existing = d.existing_person || (d.already_registered ? d.person : null) ||
+                   (d.detail && d.detail.person);
+  if (existing) showPersonCard(existing, "Already registered");
+}
+
+// ---------------------------------------------------------------- run loop
+let running = false, sessionId = null, sessionKind = null;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function run() {
+  if (running) return;
+  running = true; $("startBtn").disabled = true; $("stopBtn").disabled = false;
+  $("personCard").innerHTML = "";
+  sessionId = null; sessionKind = null;
+  try {
+    let path, fields = {};
+    if (tab === "register") {
+      const r = await api("POST", "/api/enroll/start", { name: $("regName").value.trim(),
+        employee_id: $("regEid").value.trim(), employee_number: $("regEnum").value.trim() });
+      setResult(r.data, r.http);
+      if (r.http !== 200) return;
+      sessionId = r.data.session_id; sessionKind = "register"; path = "/api/enroll/frame";
+    } else if (tab === "attendance") {
+      const eid = user.role === "employee" ? user.employee.employee_id : $("attEmployee").value;
+      const r = await api("POST", "/api/attendance/start", eid ? { employee_id: eid } : {});
+      setResult(r.data, r.http);
+      if (r.http !== 200) return;
+      sessionId = r.data.session_id; sessionKind = "attendance"; path = "/api/attendance/frame";
+    } else if (tab === "group") {
+      const r = await api("POST", "/api/attendance/group/start", {});
+      setResult(r.data, r.http);
+      if (r.http !== 200) return;
+      sessionId = r.data.session_id; sessionKind = "group"; path = "/api/attendance/group/frame";
+    } else if (tab === "check") {
+      path = "/api/enroll/check";
+    } else {
+      path = $("detectMode").value;
+    }
+    if (sessionId) fields.session_id = sessionId;
+    const myTab = tab;
+    while (running && tab === myTab) {
+      const t0 = performance.now();
+      const r = await postFrame(path, fields);
+      if (!running || tab !== myTab) break;
+      setResult(r.data, r.http);
+      $("timing").textContent = `${Math.round(performance.now() - t0)} ms per frame`;
+      if (r.http >= 400) break;
+      if (sessionId && r.data.state !== "running") { sessionId = null; break; }
+      if (tab === "check" && r.data.already_registered !== null) break;
+      // await sleep(Math.max(0, 300 - (performance.now() - t0)));
+      await sleep(Math.max(0, 120 - (performance.now() - t0)));
+    }
+  } catch (e) {
+    setResult({ status: "network_error", message: "Cannot reach the API: " + e.message });
+  } finally {
+    running = false; $("startBtn").disabled = false; $("stopBtn").disabled = true;
+  }
+}
+async function stopRun() {
+  running = false;
+  if (sessionId) {
+    // a group session is finished, not cancelled: people marked stay marked
+    const path = { register: "/api/enroll/cancel", attendance: "/api/attendance/cancel",
+                   group: "/api/attendance/group/finish" }[sessionKind];
+    const id = sessionId, kind = sessionKind; sessionId = null;
+    try {
+      const r = await api("POST", path, { session_id: id });
+      if (kind === "group") setResult(r.data, r.http);
+    } catch (e) {}
+  }
+}
+$("startBtn").onclick = run;
+$("stopBtn").onclick = async () => {
+  // only a cancelled registration or attendance needs a "Stopped" note; a
+  // group session shows its summary, detection keeps its last result
+  const cancelled = sessionId && ["register", "attendance"].includes(sessionKind);
+  await stopRun();
+  if (cancelled) $("message").textContent = "Stopped";
+};
+
+// ---------------------------------------------------------------- people (admin)
+function localTime(utc) {
+  if (!utc) return "";
+  const d = new Date(utc.replace(" ", "T") + "Z");
+  return isNaN(d) ? utc : d.toLocaleString();
+}
+async function renderPeople() {
+  $("peopleMsg").textContent = "Loading...";
+  try {
+    const people = await loadPeople();
+    $("peopleTable").innerHTML = `<tr><th>Photo</th><th>Name</th><th>Employee ID</th>
+      <th>Number</th><th class="num">Samples</th><th>Registered</th><th></th></tr>` +
+      people.map((p, i) => `<tr><td><img class="thumb" id="ph${i}" alt=""></td>
+        <td>${esc(p.name)}</td><td>${esc(p.employee_id)}</td><td>${esc(p.employee_number)}</td>
+        <td class="num">${p.samples}</td><td>${esc(localTime(p.created_at))}</td>
+        <td><button class="danger" data-name="${esc(p.name)}">Delete</button></td></tr>`).join("");
+    $("peopleMsg").textContent = people.length ? "" : "No one registered yet";
+    $("peopleTable").querySelectorAll("button.danger").forEach(b => b.onclick = () => deletePerson(b.dataset.name));
+    people.forEach(async (p, i) => {
+      if (!p.has_image) return;
+      const url = await imageURL(`/api/people/${encodeURIComponent(p.employee_id)}/image`);
+      if (url && $("ph" + i)) $("ph" + i).src = url;
+    });
+  } catch (e) { $("peopleMsg").textContent = "Could not load: " + e.message; }
+}
+async function deletePerson(name) {
+  if (user.role !== "admin") return;
+  if (!confirm(`Delete ${name} and all their face data? This cannot be undone.`)) return;
+  const r = await api("DELETE", "/api/people/" + encodeURIComponent(name));
+  $("peopleMsg").textContent = r.http === 200 ? `Deleted ${name}` : "Delete failed: " + errorText(r);
+  renderPeople();
+}
+$("peopleRefresh").onclick = renderPeople;
+
+// ---------------------------------------------------------------- records (admin)
+async function renderRecords() {
+  $("recMsg").textContent = "Loading...";
+  const q = new URLSearchParams({ limit: "500" });
+  if ($("recDay").value) q.set("day", $("recDay").value);
+  if ($("recEmployee").value) q.set("employee_id", $("recEmployee").value);
+  const r = await api("GET", "/api/attendance?" + q);
+  if (r.http !== 200) { $("recMsg").textContent = "Could not load: " + errorText(r); return; }
+  const rows = r.data.records;
+  $("recTable").innerHTML = `<tr><th>Photo</th><th>Time</th><th>Name</th><th>Employee ID</th>
+    <th class="num">Liveness</th><th class="num">Similarity</th><th class="num">Detection</th>
+    <th>Turn</th><th>Mode</th></tr>` +
+    rows.map((a, i) => `<tr><td><img class="thumb" id="rp${i}" alt=""></td>
+      <td>${esc(localTime(a.created_at))}</td><td>${esc(a.name)}</td><td>${esc(a.employee_id)}</td>
+      <td class="num">${fmt(a.liveness)}</td><td class="num">${fmt(a.similarity)}</td>
+      <td class="num">${fmt(a.detection_score)}</td><td>${esc(a.challenge || "-")}</td><td>${esc(a.mode || "single")}</td></tr>`).join("");
+  $("recMsg").textContent = rows.length ? `${rows.length} record(s)` : "No records for this filter";
+  rows.forEach(async (a, i) => {
+    const url = await imageURL(`/api/attendance/${a.id}/image`);
+    if (url && $("rp" + i)) $("rp" + i).src = url;
+  });
+}
+$("recLoad").onclick = renderRecords;
+
+// ---------------------------------------------------------------- restore session
+try {
+  const saved = JSON.parse(store.get("portal.user") || "null");
+  if (saved && saved.role) { user = saved; enterApp(); }
+} catch (e) {}
+</script>
+</body>
+</html>

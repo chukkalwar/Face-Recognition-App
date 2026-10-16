@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Face API Tester</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --muted:#5d6670; --line:#dde1e6;
+          --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; --accent:#0969da; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1216; --card:#171b21; --ink:#e6e9ed; --muted:#9aa4af; --line:#2a3038;
+            --ok:#3fb950; --bad:#f85149; --warn:#d29922; --accent:#4493f8; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:1180px; margin:0 auto; padding:16px; display:grid; gap:16px;
+         grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); }
+  @media (max-width:860px) { main { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  h1 { font-size:18px; margin:0 0 10px; } h2 { font-size:15px; margin:0 0 8px; }
+  .stage { position:relative; width:100%; background:#000; border-radius:8px; overflow:hidden; }
+  .stage.mirror video, .stage.mirror canvas { transform:scaleX(-1); }
+  video, canvas.overlay { display:block; width:100%; }
+  canvas.overlay { position:absolute; inset:0; height:100%; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
+  label { font-size:13px; color:var(--muted); display:flex; flex-direction:column; gap:3px; }
+  input { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px;
+          background:var(--bg); color:var(--ink); min-width:0; }
+  button { font:inherit; padding:7px 12px; border-radius:6px; border:1px solid var(--line);
+           background:var(--bg); color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.active { outline:2px solid var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  .msg { font-size:20px; font-weight:600; margin:6px 0 2px; }
+  .sub { color:var(--muted); }
+  .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px;
+           font-weight:600; border:1px solid currentColor; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:4px 0; border-bottom:1px solid var(--line); } td:last-child { text-align:right;
+       font-variant-numeric:tabular-nums; }
+  pre { margin:0; max-height:260px; overflow:auto; font-size:12px; background:var(--bg);
+        padding:8px; border-radius:6px; white-space:pre-wrap; word-break:break-word; }
+  .bar { height:8px; background:var(--line); border-radius:99px; overflow:hidden; }
+  .bar > div { height:100%; width:0; background:var(--accent); transition:width .2s; }
+  .fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+</style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <h1>Face API tester</h1>
+    <div class="stage mirror" id="stage">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas class="overlay" id="overlay"></canvas>
+    </div>
+    <div class="row">
+      <label style="flex:2">API address<input id="api" value="http://localhost:8000"></label>
+      <label style="flex:1">API key (if set)<input id="key" placeholder="X-API-Key"></label>
+      <label>Frames/sec<input id="fps" type="number" min="1" max="8" value="3" style="width:70px"></label>
+    </div>
+    <div class="row" id="modes">
+      <button data-mode="check">Check registered</button>
+      <button data-mode="register">Register</button>
+      <button data-mode="face">Detect face</button>
+      <button data-mode="liveness">Liveness</button>
+      <button data-mode="verify">Verify</button>
+      <button data-mode="attendance">Attendance</button>
+    </div>
+    <div class="fields" id="regFields" hidden>
+      <label>Name<input id="name"></label>
+      <label>Employee ID<input id="eid"></label>
+      <label>Employee number<input id="enum"></label>
+    </div>
+    <div class="fields" id="attFields" hidden>
+      <label>Employee ID (optional)<input id="aeid"></label>
+    </div>
+    <div class="row">
+      <button class="primary" id="start">Start</button>
+      <button id="stop" disabled>Stop</button>
+      <span class="sub" id="state"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Result</h2>
+    <span class="badge" id="badge">idle</span>
+    <div class="msg" id="message">Pick a mode and press Start</div>
+    <div class="sub" id="instruction"></div>
+    <div class="bar" style="margin:10px 0"><div id="progress"></div></div>
+    <table id="scores"></table>
+    <h2 style="margin-top:14px">Last response</h2>
+    <pre id="raw">-</pre>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const video = $("video"), overlay = $("overlay"), grab = document.createElement("canvas");
+let mode = "verify", running = false, sessionId = null;
+
+try { $("api").value = localStorage.getItem("api") || $("api").value;
+      $("key").value = localStorage.getItem("key") || ""; } catch (e) {}
+
+function selectMode(m) {
+  mode = m;
+  document.querySelectorAll("#modes button").forEach(b => b.classList.toggle("active", b.dataset.mode === m));
+  $("regFields").hidden = m !== "register";
+  $("attFields").hidden = m !== "attendance";
+}
+document.querySelectorAll("#modes button").forEach(b => b.onclick = () => !running && selectMode(b.dataset.mode));
+selectMode("verify");
+
+navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: "user" }, audio: false })
+  .then(s => { video.srcObject = s; })
+  .catch(e => show({ status: "camera_error", message: "Camera blocked or missing: " + e.message }));
+
+function headers(json) {
+  const h = {};
+  if ($("key").value) h["X-API-Key"] = $("key").value;
+  if (json) h["Content-Type"] = "application/json";
+  return h;
+}
+const base = () => $("api").value.replace(/\/$/, "");
+
+async function postJSON(path, body) {
+  const r = await fetch(base() + path, { method: "POST", headers: headers(true), body: JSON.stringify(body) });
+  return { http: r.status, data: await r.json() };
+}
+async function postFrame(path, fields = {}) {
+  grab.width = video.videoWidth; grab.height = video.videoHeight;
+  grab.getContext("2d").drawImage(video, 0, 0);            // unmirrored, full frame
+  const blob = await new Promise(res => grab.toBlob(res, "image/jpeg", 0.9));
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  form.append("image", blob, "frame.jpg");
+  const r = await fetch(base() + path, { method: "POST", headers: headers(false), body: form });
+  return { http: r.status, data: await r.json() };
+}
+
+function tone(status) {
+  if (["ok", "complete"].includes(status)) return "ok";
+  if (["spoof", "rejected", "already_registered", "mismatch", "failed"].includes(status)) return "bad";
+  return "warn";
+}
+function fmt(v) { return v === null || v === undefined ? "-" : (typeof v === "number" ? v.toFixed(3) : v); }
+
+function drawBox(bbox, status) {
+  overlay.width = video.videoWidth || 1280; overlay.height = video.videoHeight || 720;
+  const ctx = overlay.getContext("2d");
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  if (!bbox) return;
+  const css = getComputedStyle(document.documentElement);
+  ctx.strokeStyle = css.getPropertyValue("--" + tone(status)).trim();
+  ctx.lineWidth = 4;
+  ctx.strokeRect(bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]);
+}
+
+// One view for every endpoint: pull the per-frame result and the session info.
+function show(d, http) {
+  const frame = d.frame || d;
+  const status = d.state && d.state !== "running" ? d.state : (frame.status || d.status || "-");
+  $("badge").textContent = status; $("badge").className = "badge " + tone(status);
+  let message = frame.message || d.message || "";
+  if (d.detail) message = typeof d.detail === "string" ? d.detail : (d.detail.message || JSON.stringify(d.detail));
+  if (d.state && d.state !== "running") message = d.message || d.reason || message;
+  if (mode === "check" && d.message) message = d.message;
+  $("message").textContent = message;
+  $("instruction").textContent = d.instruction ? "Instruction: " + d.instruction : "";
+  let progress = d.progress;
+  if (d.counts) progress = Object.values(d.counts).reduce((a, b) => a + b, 0) /
+                           (d.samples_per_pose * d.poses.length);
+  $("progress").style.width = ((progress || 0) * 100) + "%";
+  const rows = [
+    ["Spoof", frame.spoof ? "YES" : "no"],
+    ["Liveness score", fmt(frame.liveness_score)],
+    ["Detection score", fmt(frame.detection_score)],
+    ["Face ratio (distance)", fmt(frame.face_ratio)],
+    ["Similarity", fmt(frame.similarity)],
+    ["Name", frame.name || (d.person && d.person.name) || (d.existing_person && d.existing_person.name) || "-"],
+    ["Employee ID", frame.employee_id || (d.person && d.person.employee_id) || (d.existing_person && d.existing_person.employee_id) || "-"],
+  ];
+  if (d.counts) rows.push(["Samples", Object.entries(d.counts).map(([k, v]) => `${k} ${v}/${d.samples_per_pose}`).join(", ")]);
+  if (d.phase) rows.push(["Phase", d.phase]);
+  if (http) rows.push(["HTTP", http]);
+  $("scores").innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("");
+  $("raw").textContent = JSON.stringify(d, null, 2);
+  drawBox(frame.bbox, frame.status);
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function run() {
+  try { localStorage.setItem("api", $("api").value); localStorage.setItem("key", $("key").value); } catch (e) {}
+  running = true; $("start").disabled = true; $("stop").disabled = false; sessionId = null;
+  try {
+    if (mode === "register") {
+      const r = await postJSON("/api/enroll/start", { name: $("name").value.trim(),
+        employee_id: $("eid").value.trim(), employee_number: $("enum").value.trim() });
+      show(r.data, r.http);
+      if (r.http !== 200) return;
+      sessionId = r.data.session_id;
+    } else if (mode === "attendance") {
+      const eid = $("aeid").value.trim();
+      const r = await postJSON("/api/attendance/start", eid ? { employee_id: eid } : {});
+      show(r.data, r.http);
+      if (r.http !== 200) return;
+      sessionId = r.data.session_id;
+    }
+    const path = { check: "/api/enroll/check", register: "/api/enroll/frame",
+                   face: "/api/detect/face", liveness: "/api/detect/liveness",
+                   verify: "/api/verify", attendance: "/api/attendance/frame" }[mode];
+    while (running) {
+      const t0 = performance.now();
+      const r = await postFrame(path, sessionId ? { session_id: sessionId } : {});
+      show(r.data, r.http);
+      $("state").textContent = `${Math.round(performance.now() - t0)} ms per request`;
+      if (r.http >= 400) break;
+      if (sessionId && r.data.state && r.data.state !== "running") break;
+      if (mode === "check" && r.data.already_registered !== null) break;
+      await sleep(Math.max(0, 1000 / Number($("fps").value || 3) - (performance.now() - t0)));
+    }
+  } catch (e) {
+    show({ status: "network_error", message: "Cannot reach the API: " + e.message +
+           ". Is the server running, and is the address right?" });
+  } finally {
+    running = false; $("start").disabled = false; $("stop").disabled = true;
+  }
+}
+
+$("start").onclick = run;
+$("stop").onclick = async () => {
+  running = false;
+  if (sessionId) {
+    const path = mode === "register" ? "/api/enroll/cancel" : "/api/attendance/cancel";
+    try { show((await postJSON(path, { session_id: sessionId })).data); } catch (e) {}
+  }
+};
+</script>
+</body>
+</html>
